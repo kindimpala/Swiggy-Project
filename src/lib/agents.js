@@ -3,6 +3,7 @@ import {
   WEEKLY_BUDGET_LIMIT,
   WEEKLY_BUDGET_SPENT_SO_FAR,
   bestRestaurantMatch,
+  tryAssignRestaurant,
   getRestrictionLabel,
 } from '../data/mockData.js';
 
@@ -137,8 +138,15 @@ function simulateIntent(userText) {
 }
 
 function simulateRestaurant(userText, members) {
+  // If the request explicitly names one of our restaurants (e.g. "Order
+  // from Domino's Pizza"), honor that directly instead of letting the
+  // generic cuisine-keyword scoring possibly pick a different one.
+  const lower = userText.toLowerCase();
+  const namedRestaurant = RESTAURANTS.find((r) => lower.includes(r.name.toLowerCase()));
+  const directMatch = namedRestaurant ? tryAssignRestaurant(namedRestaurant, members) : null;
+
   const intent = simulateIntent(userText);
-  const match = bestRestaurantMatch(members, intent.cuisinePreference);
+  const match = directMatch || bestRestaurantMatch(members, intent.cuisinePreference);
   if (!match) return null;
   const dishesByMember = {};
   for (const member of members) {

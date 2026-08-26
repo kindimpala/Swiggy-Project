@@ -20,6 +20,12 @@ Speak or type a group food request; three AI agents run **in parallel**
    bill breakdown, per-person split, and budget status.
 4. **Confirm** — One tap places the order and shows an animated success screen.
 
+Prefer to skip the agents and pick a place yourself? Tap **🍽️ Browse all
+restaurants** on the home screen to see the full catalogue — each restaurant
+shows a live "✓ works for everyone" / "⚠ missing an option for someone" badge
+against your active group, and tapping into one shows its full tagged menu
+plus a direct "Order from X" button.
+
 ### Groups & dietary preferences (create your own, no code required)
 
 The group is real, persisted React state (`localStorage`), not a hardcoded
