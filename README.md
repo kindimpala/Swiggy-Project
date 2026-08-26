@@ -20,7 +20,19 @@ Speak or type a group food request; three AI agents run **in parallel**
    bill breakdown, per-person split, and budget status.
 4. **Confirm** — One tap places the order and shows an animated success screen.
 
-### The group (mock profiles, held in React state)
+### Groups & dietary preferences (create your own, no code required)
+
+The group is real, persisted React state (`localStorage`), not a hardcoded
+list — tap **Manage** on the home screen to:
+
+- Create any number of named groups (e.g. "Roomies", "Weekend Crew").
+- Add or remove members per group (any number, not just 4).
+- Edit each member's name and dietary preference — **no restrictions**,
+  **vegetarian**, **gluten-free**, or **no onion / garlic**.
+- Switch which group is active — that's the group the 3 agents order for,
+  and the per-person split divides by that group's actual size.
+
+The app ships with one default group so it works immediately:
 
 | Member | Dietary need |
 |---|---|
@@ -33,9 +45,10 @@ Weekly budget: **₹2000** (₹640 already spent this week in the mock data).
 
 ### Restaurants (mock catalogue)
 
-Behrouz Biryani, Wow! Momo, Haldiram's, Barbeque Nation, Truffles, and Box8 —
-each with a tagged menu (veg / gluten-free / no-onion-garlic / price) so the
-matching agent can verify every member has an eligible dish.
+9 restaurants, each with a tagged menu (veg / gluten-free / no-onion-garlic /
+price) so the matching agent can verify every member of *any* group has an
+eligible dish: Behrouz Biryani, Wow! Momo, Haldiram's, Barbeque Nation,
+Truffles, Box8, Sagar Ratna, Faasos, and Domino's Pizza.
 
 ## Live AI vs. simulation mode
 

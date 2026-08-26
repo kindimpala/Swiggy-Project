@@ -1,9 +1,9 @@
 import {
-  GROUP_MEMBERS,
   RESTAURANTS,
   WEEKLY_BUDGET_LIMIT,
   WEEKLY_BUDGET_SPENT_SO_FAR,
   bestRestaurantMatch,
+  getRestrictionLabel,
 } from '../data/mockData.js';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -56,7 +56,7 @@ function extractJson(text) {
 // Prompt builders — each agent gets the same raw request text plus whatever
 // mock context it needs, and is designed to run independently in parallel.
 // ---------------------------------------------------------------------------
-function buildIntentPrompt(userText) {
+function buildIntentPrompt(userText, members) {
   const system = `You are Agent 1 (Intent Parser) inside Swiggy's Super Agent, a multi-agent group food-ordering assistant. Extract structured intent from a casual group order request. Respond with ONLY a JSON object, no prose, no markdown fences. Schema:
 {
   "who": string[],            // who this order is for, e.g. ["group","everyone"] or named people mentioned
@@ -66,26 +66,23 @@ function buildIntentPrompt(userText) {
   "budgetHint": string,        // any budget-related phrase detected, "" if none
   "urgency": "low"|"normal"|"high"
 }`;
-  const user = `Group order request: "${userText}"\n\nThe group always has exactly 4 members with fixed dietary needs (handled by another agent). Focus only on parsing the intent of this sentence.`;
+  const user = `Group order request: "${userText}"\n\nThe group has ${members.length} members with fixed dietary needs (handled by another agent). Focus only on parsing the intent of this sentence.`;
   return { system, user };
 }
 
-function buildRestaurantPrompt(userText) {
+function buildRestaurantPrompt(userText, members) {
   const system = `You are Agent 2 (Restaurant Matcher) inside Swiggy's Super Agent. You are given a group's dietary profile and a catalogue of restaurants with tagged menu items. Find the SINGLE BEST restaurant where every group member has at least one eligible dish, matching any cuisine hint in the request. Respond with ONLY a JSON object, no prose, no markdown fences. Schema:
 {
   "restaurantId": string,          // must be one of the provided restaurant ids
   "reasoning": string,             // 1-2 sentences on why this restaurant satisfies everyone
-  "dishesByMember": {               // memberId -> { dishId, dishName }
-    "you": { "dishId": string, "dishName": string },
-    "raj": { "dishId": string, "dishName": string },
-    "sara": { "dishId": string, "dishName": string },
-    "priya": { "dishId": string, "dishName": string }
+  "dishesByMember": {              // one entry per member id below -> { dishId, dishName }
+    ${members.map((m) => `"${m.id}": { "dishId": string, "dishName": string }`).join(',\n    ')}
   }
 }`;
   const user = `Group order request: "${userText}"
 
 Group dietary profile:
-${GROUP_MEMBERS.map((m) => `- ${m.id} (${m.name}): ${m.restrictionLabel}`).join('\n')}
+${members.map((m) => `- ${m.id} (${m.name}): ${getRestrictionLabel(m.restriction)}`).join('\n')}
 
 Restaurant catalogue (JSON):
 ${JSON.stringify(
@@ -99,11 +96,11 @@ ${JSON.stringify(
   }))
 )}
 
-Every member MUST get a dish that respects their restriction: raj needs veg:true, sara needs glutenFree:true, priya needs noOnionGarlic:true, you can have anything.`;
+Every member MUST get a dish that respects their restriction: "Vegetarian" needs veg:true, "Gluten-free" needs glutenFree:true, "No onion / garlic" needs noOnionGarlic:true, "No restrictions" can have anything.`;
   return { system, user };
 }
 
-function buildBudgetPrompt(userText) {
+function buildBudgetPrompt(userText, members) {
   const system = `You are Agent 3 (Budget Guardian) inside Swiggy's Super Agent. You track a rolling weekly food budget for the group and reason about whether tonight's order fits. Respond with ONLY a JSON object, no prose, no markdown fences. Schema:
 {
   "status": "within_budget" | "tight" | "over_budget",
@@ -116,7 +113,7 @@ Weekly budget limit: ₹${WEEKLY_BUDGET_LIMIT}
 Already spent this week (before tonight): ₹${WEEKLY_BUDGET_SPENT_SO_FAR}
 Remaining before tonight's order: ₹${WEEKLY_BUDGET_LIMIT - WEEKLY_BUDGET_SPENT_SO_FAR}
 
-You do not know tonight's exact order total yet (another agent is computing it in parallel) — reason generally about how much headroom is left and give a status/tip appropriate for a group of 4 ordering dinner. Assume a typical group dinner costs between ₹800-₹1400.`;
+You do not know tonight's exact order total yet (another agent is computing it in parallel) — reason generally about how much headroom is left and give a status/tip appropriate for a group of ${members.length} ordering dinner. Assume a typical per-person dinner order costs between ₹200-₹350.`;
   return { system, user };
 }
 
@@ -139,12 +136,12 @@ function simulateIntent(userText) {
   };
 }
 
-function simulateRestaurant(userText) {
+function simulateRestaurant(userText, members) {
   const intent = simulateIntent(userText);
-  const match = bestRestaurantMatch(GROUP_MEMBERS, intent.cuisinePreference);
+  const match = bestRestaurantMatch(members, intent.cuisinePreference);
   if (!match) return null;
   const dishesByMember = {};
-  for (const member of GROUP_MEMBERS) {
+  for (const member of members) {
     const dish = match.assignment[member.id];
     dishesByMember[member.id] = { dishId: dish.id, dishName: dish.name };
   }
@@ -170,14 +167,14 @@ function simulateBudget() {
 // Public API — runs all three agents in parallel via Promise.all, then
 // merges their outputs (plus deterministic money math) into one result.
 // ---------------------------------------------------------------------------
-export async function runSuperAgent(userText, apiKey, { signal, onAgentUpdate } = {}) {
+export async function runSuperAgent(userText, apiKey, members, { signal, onAgentUpdate } = {}) {
   const notify = (id, status) => onAgentUpdate && onAgentUpdate(id, status);
 
   const runAgent = async (id, promptBuilder, simulateFn) => {
     notify(id, 'running');
     if (apiKey) {
       try {
-        const { system, user } = promptBuilder(userText);
+        const { system, user } = promptBuilder(userText, members);
         const result = await callClaude(apiKey, system, user, signal);
         notify(id, 'live');
         return { data: result, source: 'live' };
@@ -189,7 +186,7 @@ export async function runSuperAgent(userText, apiKey, { signal, onAgentUpdate } 
     // simulation mode (no live API key configured, or the call failed).
     await new Promise((r) => setTimeout(r, 900 + Math.random() * 700));
     notify(id, 'simulated');
-    return { data: simulateFn(userText), source: 'simulated' };
+    return { data: simulateFn(userText, members), source: 'simulated' };
   };
 
   const [intentRes, restaurantRes, budgetRes] = await Promise.all([
@@ -206,17 +203,17 @@ export async function runSuperAgent(userText, apiKey, { signal, onAgentUpdate } 
   const restaurantValid =
     restaurantPlan &&
     RESTAURANTS.some((r) => r.id === restaurantPlan.restaurantId) &&
-    GROUP_MEMBERS.every((m) => restaurantPlan.dishesByMember && restaurantPlan.dishesByMember[m.id]);
+    members.every((m) => restaurantPlan.dishesByMember && restaurantPlan.dishesByMember[m.id]);
 
   if (!restaurantValid) {
-    restaurantPlan = simulateRestaurant(userText);
+    restaurantPlan = simulateRestaurant(userText, members);
   }
 
   const restaurant = RESTAURANTS.find((r) => r.id === restaurantPlan.restaurantId);
 
   // Money math is always computed deterministically in JS — never trust
   // an LLM's arithmetic for a live "confirm & pay" style demo.
-  const perPerson = GROUP_MEMBERS.map((member) => {
+  const perPerson = members.map((member) => {
     const pick = restaurantPlan.dishesByMember[member.id];
     const dish = restaurant.menu.find((d) => d.id === pick.dishId) || restaurant.menu.find((d) => d.name === pick.dishName);
     return { member, dish };
@@ -226,7 +223,7 @@ export async function runSuperAgent(userText, apiKey, { signal, onAgentUpdate } 
   const platformFee = 6;
   const gst = Math.round(subtotal * 0.05);
   const total = subtotal + deliveryFee + platformFee + gst;
-  const perPersonSplit = Math.ceil(total / GROUP_MEMBERS.length);
+  const perPersonSplit = Math.ceil(total / members.length);
 
   const remainingBeforeOrder = WEEKLY_BUDGET_LIMIT - WEEKLY_BUDGET_SPENT_SO_FAR;
   const remainingAfterOrder = remainingBeforeOrder - total;

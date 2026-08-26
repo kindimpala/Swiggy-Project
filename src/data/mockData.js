@@ -2,36 +2,31 @@
 // and a small restaurant/menu catalogue with enough tagging detail for
 // the matching agent to reason about dietary constraints.
 
-export const GROUP_MEMBERS = [
-  {
-    id: 'you',
-    name: 'You',
-    avatar: '🧑',
-    restriction: 'none',
-    restrictionLabel: 'No restrictions',
-  },
-  {
-    id: 'raj',
-    name: 'Raj',
-    avatar: '👨‍💼',
-    restriction: 'vegetarian',
-    restrictionLabel: 'Vegetarian',
-  },
-  {
-    id: 'sara',
-    name: 'Sara',
-    avatar: '👩‍🦰',
-    restriction: 'gluten-free',
-    restrictionLabel: 'Gluten-free',
-  },
-  {
-    id: 'priya',
-    name: 'Priya',
-    avatar: '👩',
-    restriction: 'no-onion-garlic',
-    restrictionLabel: 'No onion / garlic',
-  },
+export const DEFAULT_GROUP_MEMBERS = [
+  { id: 'you', name: 'You', avatar: '🧑', restriction: 'none' },
+  { id: 'raj', name: 'Raj', avatar: '👨‍💼', restriction: 'vegetarian' },
+  { id: 'sara', name: 'Sara', avatar: '👩‍🦰', restriction: 'gluten-free' },
+  { id: 'priya', name: 'Priya', avatar: '👩', restriction: 'no-onion-garlic' },
 ];
+
+// The fixed set of dietary restrictions the matching agent understands.
+// A member's display label is always derived from this list (via
+// getRestrictionLabel) rather than stored per-member, so editing a
+// member's restriction can never leave a stale label behind.
+export const DIETARY_RESTRICTIONS = [
+  { id: 'none', label: 'No restrictions' },
+  { id: 'vegetarian', label: 'Vegetarian' },
+  { id: 'gluten-free', label: 'Gluten-free' },
+  { id: 'no-onion-garlic', label: 'No onion / garlic' },
+];
+
+export function getRestrictionLabel(restriction) {
+  return DIETARY_RESTRICTIONS.find((r) => r.id === restriction)?.label || 'No restrictions';
+}
+
+// Emoji palette newly-added group members are auto-assigned from, cycling
+// by member index so a freshly created group doesn't repeat itself.
+export const AVATAR_PALETTE = ['🧑', '👨‍💼', '👩‍🦰', '👩', '🧔', '👱‍♀️', '🧑‍🦱', '👨‍🦳', '👩‍🦳', '🧑‍🎤'];
 
 export const WEEKLY_BUDGET_LIMIT = 2000;
 
@@ -151,6 +146,60 @@ export const RESTAURANTS = [
       { id: 'b82', name: 'Paneer Meal Combo', price: 229, veg: true, glutenFree: false, noOnionGarlic: false, spicy: false },
       { id: 'b83', name: 'Jain Rajma Rice Combo (No Onion No Garlic)', price: 219, veg: true, glutenFree: true, noOnionGarlic: true, spicy: false },
       { id: 'b84', name: 'Schezwan Fried Rice + Manchurian', price: 239, veg: true, glutenFree: false, noOnionGarlic: false, spicy: true },
+    ],
+  },
+  {
+    id: 'sagar-ratna',
+    name: 'Sagar Ratna',
+    cuisine: 'South Indian, Dosa, Idli',
+    rating: 4.3,
+    ratingCount: '13.5K',
+    deliveryTime: 30,
+    priceForTwo: 380,
+    image: '🥞',
+    tags: ['Pure veg', 'South Indian favourite'],
+    menu: [
+      { id: 'sr1', name: 'Mysore Masala Dosa', price: 169, veg: true, glutenFree: true, noOnionGarlic: false, spicy: true },
+      { id: 'sr2', name: 'Plain Uttapam (No Onion No Garlic)', price: 139, veg: true, glutenFree: true, noOnionGarlic: true, spicy: false },
+      { id: 'sr3', name: 'Idli Vada Sambar (No Onion No Garlic)', price: 119, veg: true, glutenFree: true, noOnionGarlic: true, spicy: false },
+      { id: 'sr4', name: 'Filter Coffee', price: 69, veg: true, glutenFree: true, noOnionGarlic: true, spicy: false },
+      { id: 'sr5', name: 'Paneer Ghee Roast Dosa', price: 199, veg: true, glutenFree: true, noOnionGarlic: false, spicy: true },
+    ],
+  },
+  {
+    id: 'faasos',
+    name: 'Faasos',
+    cuisine: 'Wraps, Rolls, Indian-Chinese Fusion',
+    rating: 3.9,
+    ratingCount: '8.7K',
+    deliveryTime: 24,
+    priceForTwo: 360,
+    image: '🌯',
+    tags: ['Quick bites', 'On-the-go'],
+    menu: [
+      { id: 'fs1', name: 'Chicken Tikka Wrap', price: 189, veg: false, glutenFree: false, noOnionGarlic: false, spicy: true },
+      { id: 'fs2', name: 'Paneer Tikka Wrap', price: 169, veg: true, glutenFree: false, noOnionGarlic: false, spicy: true },
+      { id: 'fs3', name: 'Jain Paneer Wrap (No Onion No Garlic)', price: 179, veg: true, glutenFree: false, noOnionGarlic: true, spicy: false },
+      { id: 'fs4', name: 'Grilled Chicken Salad Bowl (GF)', price: 219, veg: false, glutenFree: true, noOnionGarlic: false, spicy: false },
+      { id: 'fs5', name: 'Veg Schezwan Rice Bowl', price: 179, veg: true, glutenFree: false, noOnionGarlic: false, spicy: true },
+    ],
+  },
+  {
+    id: 'dominos',
+    name: "Domino's Pizza",
+    cuisine: 'Pizza, Italian, Fast Food',
+    rating: 4.1,
+    ratingCount: '18.3K',
+    deliveryTime: 35,
+    priceForTwo: 700,
+    image: '🍕',
+    tags: ['Late night favourite', 'Popular for groups'],
+    menu: [
+      { id: 'dm1', name: 'Chicken Pepperoni Pizza', price: 399, veg: false, glutenFree: false, noOnionGarlic: false, spicy: true },
+      { id: 'dm2', name: 'Farmhouse Veg Pizza', price: 349, veg: true, glutenFree: false, noOnionGarlic: false, spicy: false },
+      { id: 'dm3', name: 'Jain Special Pizza (No Onion No Garlic)', price: 359, veg: true, glutenFree: false, noOnionGarlic: true, spicy: false },
+      { id: 'dm4', name: 'Gluten-Free Thin Crust Margherita (GF)', price: 329, veg: true, glutenFree: true, noOnionGarlic: false, spicy: false },
+      { id: 'dm5', name: 'Choco Lava Cake', price: 99, veg: true, glutenFree: false, noOnionGarlic: true, spicy: false },
     ],
   },
 ];

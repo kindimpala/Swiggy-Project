@@ -1,10 +1,45 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  GROUP_MEMBERS,
+  DEFAULT_GROUP_MEMBERS,
+  DIETARY_RESTRICTIONS,
+  AVATAR_PALETTE,
   WEEKLY_BUDGET_LIMIT,
   WEEKLY_BUDGET_SPENT_SO_FAR,
+  getRestrictionLabel,
 } from '../data/mockData.js';
 import { runSuperAgent } from '../lib/agents.js';
+
+const GROUPS_STORAGE_KEY = 'swiggy_demo_groups_v1';
+const ACTIVE_GROUP_STORAGE_KEY = 'swiggy_demo_active_group_v1';
+
+function genId(prefix) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createDefaultGroups() {
+  return [{ id: genId('group'), name: 'The Squad', members: DEFAULT_GROUP_MEMBERS.map((m) => ({ ...m })) }];
+}
+
+function loadGroups() {
+  try {
+    const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch {
+    /* fall through to defaults */
+  }
+  return createDefaultGroups();
+}
+
+function loadActiveGroupId(groups) {
+  try {
+    const stored = localStorage.getItem(ACTIVE_GROUP_STORAGE_KEY);
+    if (stored && groups.some((g) => g.id === stored)) return stored;
+  } catch {
+    /* fall through to default */
+  }
+  return groups[0].id;
+}
 
 const EXAMPLE_PROMPTS = [
   'Order dinner for the group tonight',
@@ -37,7 +72,9 @@ function getSpeechRecognition() {
 }
 
 export default function SwiggySuperAgent() {
-  const [screen, setScreen] = useState('home'); // home | listening | processing | confirm | success
+  const [screen, setScreen] = useState('home'); // home | listening | processing | confirm | success | groups
+  const [groups, setGroups] = useState(() => loadGroups());
+  const [activeGroupId, setActiveGroupId] = useState(() => loadActiveGroupId(groups));
   const [inputText, setInputText] = useState('');
   const [transcript, setTranscript] = useState('');
   const [finalRequest, setFinalRequest] = useState('');
@@ -58,9 +95,27 @@ export default function SwiggySuperAgent() {
   const recognitionRef = useRef(null);
   const abortRef = useRef(null);
 
+  const activeGroup = groups.find((g) => g.id === activeGroupId) || groups[0];
+
   useEffect(() => {
     setSpeechSupported(!!getSpeechRecognition());
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(groups));
+    } catch {
+      /* localStorage unavailable — groups still work for this session */
+    }
+  }, [groups]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_GROUP_STORAGE_KEY, activeGroupId);
+    } catch {
+      /* localStorage unavailable — selection still works for this session */
+    }
+  }, [activeGroupId]);
 
   const startListening = useCallback(() => {
     const SpeechRecognitionCtor = getSpeechRecognition();
@@ -123,7 +178,7 @@ export default function SwiggySuperAgent() {
     abortRef.current = controller;
 
     try {
-      const data = await runSuperAgent(text.trim(), apiKey, {
+      const data = await runSuperAgent(text.trim(), apiKey, activeGroup.members, {
         signal: controller.signal,
         onAgentUpdate: (id, status) => {
           setAgentStatus((prev) => ({ ...prev, [id]: status }));
@@ -137,7 +192,7 @@ export default function SwiggySuperAgent() {
       setError('Something went wrong pulling this order together. Please try again.');
       setScreen('home');
     }
-  }, [apiKey]);
+  }, [apiKey, activeGroup]);
 
   const handleTextSubmit = (e) => {
     e.preventDefault();
@@ -167,6 +222,52 @@ export default function SwiggySuperAgent() {
     }
   };
 
+  const updateGroup = (groupId, updater) => {
+    setGroups((prev) => prev.map((g) => (g.id === groupId ? updater(g) : g)));
+  };
+
+  const renameGroup = (groupId, name) => {
+    updateGroup(groupId, (g) => ({ ...g, name }));
+  };
+
+  const addMember = (groupId) => {
+    updateGroup(groupId, (g) => {
+      const avatar = AVATAR_PALETTE[g.members.length % AVATAR_PALETTE.length];
+      const newMember = { id: genId('member'), name: `Friend ${g.members.length + 1}`, avatar, restriction: 'none' };
+      return { ...g, members: [...g.members, newMember] };
+    });
+  };
+
+  const removeMember = (groupId, memberId) => {
+    updateGroup(groupId, (g) => {
+      if (g.members.length <= 1) return g;
+      return { ...g, members: g.members.filter((m) => m.id !== memberId) };
+    });
+  };
+
+  const updateMember = (groupId, memberId, field, value) => {
+    updateGroup(groupId, (g) => ({
+      ...g,
+      members: g.members.map((m) => (m.id === memberId ? { ...m, [field]: value } : m)),
+    }));
+  };
+
+  const addGroup = (name) => {
+    const newGroup = { id: genId('group'), name: name || `Group ${groups.length + 1}`, members: [{ id: genId('member'), name: 'You', avatar: '🧑', restriction: 'none' }] };
+    setGroups((prev) => [...prev, newGroup]);
+    setActiveGroupId(newGroup.id);
+  };
+
+  const deleteGroup = (groupId) => {
+    if (groups.length <= 1) return;
+    if (!window.confirm('Delete this group? This cannot be undone.')) return;
+    setGroups((prev) => {
+      const next = prev.filter((g) => g.id !== groupId);
+      if (activeGroupId === groupId) setActiveGroupId(next[0].id);
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-b from-neutral-100 to-neutral-200 p-3 sm:p-6">
       <div className="relative w-full max-w-md h-[100dvh] sm:h-[850px] sm:max-h-[92vh] bg-white sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col border border-black/5">
@@ -175,6 +276,8 @@ export default function SwiggySuperAgent() {
         <div className="flex-1 overflow-y-auto no-scrollbar">
           {screen === 'home' && (
             <HomeScreen
+              activeGroup={activeGroup}
+              onManageGroups={() => setScreen('groups')}
               inputText={inputText}
               setInputText={setInputText}
               onTextSubmit={handleTextSubmit}
@@ -183,6 +286,21 @@ export default function SwiggySuperAgent() {
               micError={micError}
               error={error}
               onExample={(p) => submitRequest(p)}
+            />
+          )}
+
+          {screen === 'groups' && (
+            <GroupManagerScreen
+              groups={groups}
+              activeGroupId={activeGroupId}
+              onSelectGroup={setActiveGroupId}
+              onRenameGroup={renameGroup}
+              onAddMember={addMember}
+              onRemoveMember={removeMember}
+              onUpdateMember={updateMember}
+              onAddGroup={addGroup}
+              onDeleteGroup={deleteGroup}
+              onDone={() => setScreen('home')}
             />
           )}
 
@@ -249,21 +367,21 @@ function BudgetChip() {
   );
 }
 
-function GroupRow() {
+function GroupRow({ members }) {
   return (
     <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 pb-1">
-      {GROUP_MEMBERS.map((m) => (
+      {members.map((m) => (
         <div key={m.id} className="shrink-0 flex flex-col items-center gap-1 bg-white border border-neutral-200 rounded-2xl px-3 py-2 min-w-[74px]">
           <div className="text-2xl">{m.avatar}</div>
           <div className="text-[11px] font-semibold text-swiggy-ink">{m.name}</div>
-          <div className="text-[9px] text-swiggy-sub text-center leading-tight">{m.restrictionLabel}</div>
+          <div className="text-[9px] text-swiggy-sub text-center leading-tight">{getRestrictionLabel(m.restriction)}</div>
         </div>
       ))}
     </div>
   );
 }
 
-function HomeScreen({ inputText, setInputText, onTextSubmit, onMicPress, speechSupported, micError, error, onExample }) {
+function HomeScreen({ activeGroup, onManageGroups, inputText, setInputText, onTextSubmit, onMicPress, speechSupported, micError, error, onExample }) {
   return (
     <div className="px-4 py-4 flex flex-col gap-4 animate-fade-in">
       <div>
@@ -271,7 +389,16 @@ function HomeScreen({ inputText, setInputText, onTextSubmit, onMicPress, speechS
         <p className="text-sm text-swiggy-sub mt-0.5">Speak or type your request — 3 AI agents handle the rest.</p>
       </div>
 
-      <GroupRow />
+      <div className="flex items-center justify-between -mb-1">
+        <span className="text-xs font-semibold text-swiggy-sub">
+          Ordering for <span className="text-swiggy-ink">{activeGroup.name}</span> · {activeGroup.members.length} {activeGroup.members.length === 1 ? 'person' : 'people'}
+        </span>
+        <button onClick={onManageGroups} className="text-xs font-bold text-swiggy-darker active:scale-95 transition">
+          Manage ✎
+        </button>
+      </div>
+
+      <GroupRow members={activeGroup.members} />
       <BudgetChip />
 
       <div className="flex flex-col items-center py-4">
@@ -320,6 +447,129 @@ function HomeScreen({ inputText, setInputText, onTextSubmit, onMicPress, speechS
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function GroupManagerScreen({
+  groups,
+  activeGroupId,
+  onSelectGroup,
+  onRenameGroup,
+  onAddMember,
+  onRemoveMember,
+  onUpdateMember,
+  onAddGroup,
+  onDeleteGroup,
+  onDone,
+}) {
+  const [newGroupName, setNewGroupName] = useState('');
+  const activeGroup = groups.find((g) => g.id === activeGroupId) || groups[0];
+
+  const handleCreateGroup = (e) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) return;
+    onAddGroup(newGroupName.trim());
+    setNewGroupName('');
+  };
+
+  return (
+    <div className="px-4 py-4 flex flex-col gap-4 animate-slide-up pb-8">
+      <div>
+        <h2 className="text-lg font-extrabold text-swiggy-ink">Your groups</h2>
+        <p className="text-sm text-swiggy-sub mt-0.5">Create groups and set each person's dietary preference.</p>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 pb-1">
+        {groups.map((g) => (
+          <button
+            key={g.id}
+            onClick={() => onSelectGroup(g.id)}
+            className={`shrink-0 rounded-2xl px-3 py-2 text-left border transition ${
+              g.id === activeGroupId ? 'bg-swiggy border-swiggy text-white' : 'bg-white border-neutral-200 text-swiggy-ink'
+            }`}
+          >
+            <div className="text-sm font-bold">{g.name}</div>
+            <div className={`text-[10px] ${g.id === activeGroupId ? 'text-white/80' : 'text-swiggy-sub'}`}>{g.members.length} people</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <input
+            value={activeGroup.name}
+            onChange={(e) => onRenameGroup(activeGroup.id, e.target.value)}
+            className="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-bold text-swiggy-ink focus:outline-none focus:ring-2 focus:ring-swiggy/40 focus:border-swiggy"
+          />
+          {groups.length > 1 && (
+            <button
+              onClick={() => onDeleteGroup(activeGroup.id)}
+              className="w-9 h-9 shrink-0 rounded-full border border-red-200 text-red-500 flex items-center justify-center active:scale-95 transition"
+              aria-label="Delete group"
+            >
+              🗑
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {activeGroup.members.map((member) => (
+            <div key={member.id} className="flex items-center gap-2 bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-2.5">
+              <div className="text-xl shrink-0">{member.avatar}</div>
+              <input
+                value={member.name}
+                onChange={(e) => onUpdateMember(activeGroup.id, member.id, 'name', e.target.value)}
+                className="w-20 min-w-0 rounded-lg border border-neutral-300 px-2 py-1.5 text-sm font-semibold text-swiggy-ink focus:outline-none focus:ring-2 focus:ring-swiggy/40 focus:border-swiggy"
+              />
+              <select
+                value={member.restriction}
+                onChange={(e) => onUpdateMember(activeGroup.id, member.id, 'restriction', e.target.value)}
+                className="flex-1 min-w-0 rounded-lg border border-neutral-300 px-2 py-1.5 text-xs text-swiggy-ink focus:outline-none focus:ring-2 focus:ring-swiggy/40 focus:border-swiggy"
+              >
+                {DIETARY_RESTRICTIONS.map((r) => (
+                  <option key={r.id} value={r.id}>{r.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => onRemoveMember(activeGroup.id, member.id)}
+                disabled={activeGroup.members.length <= 1}
+                className="w-8 h-8 shrink-0 rounded-full border border-neutral-300 text-swiggy-sub flex items-center justify-center disabled:opacity-30 active:scale-95 transition"
+                aria-label={`Remove ${member.name}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => onAddMember(activeGroup.id)}
+          className="text-sm font-semibold text-swiggy-darker bg-swiggy-light rounded-xl px-3 py-2.5 active:scale-[0.98] transition"
+        >
+          + Add member
+        </button>
+      </div>
+
+      <form onSubmit={handleCreateGroup} className="flex items-center gap-2">
+        <input
+          value={newGroupName}
+          onChange={(e) => setNewGroupName(e.target.value)}
+          placeholder="New group name (e.g. Roommates)"
+          className="flex-1 rounded-full border border-neutral-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-swiggy/40 focus:border-swiggy"
+        />
+        <button
+          type="submit"
+          disabled={!newGroupName.trim()}
+          className="px-4 py-2.5 shrink-0 rounded-full bg-swiggy text-white text-sm font-bold disabled:opacity-40 active:scale-95 transition"
+        >
+          + New group
+        </button>
+      </form>
+
+      <button onClick={onDone} className="mt-1 py-3 rounded-full bg-swiggy-ink text-white text-sm font-bold active:scale-95 transition">
+        Done
+      </button>
     </div>
   );
 }
@@ -453,7 +703,7 @@ function ConfirmScreen({ result, onConfirm, onBack, finalRequest }) {
             <div key={member.id} className="flex items-center gap-3 bg-white border border-neutral-200 rounded-xl px-3 py-2.5">
               <div className="text-xl">{member.avatar}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-swiggy-ink">{member.name} <span className="text-[10px] font-normal text-swiggy-sub">· {member.restrictionLabel}</span></div>
+                <div className="text-sm font-semibold text-swiggy-ink">{member.name} <span className="text-[10px] font-normal text-swiggy-sub">· {getRestrictionLabel(member.restriction)}</span></div>
                 <div className="text-xs text-swiggy-sub truncate">{dish ? dish.name : '—'}</div>
               </div>
               <div className="text-sm font-bold text-swiggy-ink shrink-0">₹{dish ? dish.price : 0}</div>
@@ -473,7 +723,7 @@ function ConfirmScreen({ result, onConfirm, onBack, finalRequest }) {
         <div className="h-px bg-neutral-200 my-2.5" />
         <Row label={<span className="font-bold text-swiggy-ink">Total</span>} value={<span className="font-extrabold text-swiggy-ink">₹{total}</span>} />
         <div className="flex items-center justify-between mt-3 bg-swiggy-light rounded-xl px-3 py-2.5">
-          <span className="text-sm font-semibold text-swiggy-darker">Per-person split (÷4)</span>
+          <span className="text-sm font-semibold text-swiggy-darker">Per-person split (÷{perPerson.length})</span>
           <span className="text-base font-extrabold text-swiggy-darker">₹{perPersonSplit}</span>
         </div>
       </div>
